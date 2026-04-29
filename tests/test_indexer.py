@@ -1,6 +1,5 @@
 # tests/test_indexer.py
 
-
 import sys
 from pathlib import Path
 
@@ -17,18 +16,30 @@ from src.indexer import (
 
 
 def test_01_tokenize_basic():
+    """
+    Test that basic text is tokenized into lowercase words.
+    """
     assert tokenize("Love is life.") == ["love", "is", "life"]
 
 
 def test_02_tokenize_author_name():
+    """
+    Test that an author name is tokenized correctly.
+    """
     assert tokenize("Mark Twain") == ["mark", "twain"]
 
 
 def test_03_make_doc_id():
+    """
+    Test that doc_id is generated in the expected format.
+    """
     assert make_doc_id(3, 2) == "page3#q2"
 
 
 def test_04_add_term_text():
+    """
+    Test that adding a text term updates frequency, positions, and fields.
+    """
     index = {}
 
     add_term(
@@ -50,6 +61,9 @@ def test_04_add_term_text():
 
 
 def test_05_add_term_author_does_not_increase_text_frequency():
+    """
+    Test that adding an author term does not increase text frequency.
+    """
     index = {}
 
     add_term(
@@ -69,6 +83,9 @@ def test_05_add_term_author_does_not_increase_text_frequency():
 
 
 def test_06_add_term_tags_does_not_increase_text_frequency():
+    """
+    Test that adding a tag term does not increase text frequency.
+    """
     index = {}
 
     add_term(
@@ -88,6 +105,9 @@ def test_06_add_term_tags_does_not_increase_text_frequency():
 
 
 def test_07_add_term_combines_fields_without_duplicates():
+    """
+    Test that repeated field insertion does not create duplicate field names.
+    """
     index = {}
 
     add_term(index, "love", "page1#q1", "text", "Love is life", "Mark Twain", 0)
@@ -101,6 +121,9 @@ def test_07_add_term_combines_fields_without_duplicates():
 
 
 def test_08_build_index_includes_text_author_and_tags():
+    """
+    Test that build_index includes tokens from text, author, and tags.
+    """
     quotes = [
         {
             "page": 1,
@@ -137,6 +160,9 @@ def test_08_build_index_includes_text_author_and_tags():
 
 
 def test_09_build_index_text_and_tags_can_share_same_word():
+    """
+    Test that the same word can appear in both text and tags.
+    """
     quotes = [
         {
             "page": 1,
@@ -156,6 +182,9 @@ def test_09_build_index_text_and_tags_can_share_same_word():
 
 
 def test_10_save_and_load_index(tmp_path):
+    """
+    Test that an index can be saved to and loaded from JSON without changes.
+    """
     index = {
         "love": {
             "page1#q1": {
@@ -174,9 +203,12 @@ def test_10_save_and_load_index(tmp_path):
     loaded = load_index(str(file_path))
 
     assert loaded == index
-    
-    
-def test_11_print_index_structure():
+
+
+def test_debug_01_print_index_structure():
+    """
+    Print the built index structure for manual inspection.
+    """
     quotes = [
         {
             "page": 1,
@@ -192,7 +224,10 @@ def test_11_print_index_structure():
     print("\nINDEX CONTENT:")
     for word, postings in index.items():
         print(f"{word} -> {postings}")
-        
-        
-def test_12_show_tmp_path(tmp_path):
+
+
+def test_debug_02_show_tmp_path(tmp_path):
+    """
+    Print the temporary path used during testing.
+    """
     print("\nTMP PATH:", tmp_path)
