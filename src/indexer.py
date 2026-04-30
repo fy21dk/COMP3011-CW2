@@ -130,6 +130,7 @@ def build_index(quotes: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, A
     - text tokens are indexed with frequency + positions
     - author tokens are indexed with fields only
     - tag tokens are indexed with fields only
+    - if a token already appears in text, do not add "tags" for that token
     """
     index: dict[str, dict[str, dict[str, Any]]] = {}
 
@@ -144,6 +145,8 @@ def build_index(quotes: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, A
 
         # 1) Index text tokens
         text_tokens = tokenize_text(text)
+        text_token_set = set(text_tokens)
+
         for position, word in enumerate(text_tokens):
             add_term(
                 index=index,
@@ -169,9 +172,12 @@ def build_index(quotes: list[dict[str, Any]]) -> dict[str, dict[str, dict[str, A
             )
 
         # 3) Index tag tokens
-        # tags may already be single words, but tokenize anyway for safety
+        # Skip tag tokens that already appear in text
         for tag in tags:
             for word in tokenize_text(tag):
+                if word in text_token_set:
+                    continue
+
                 add_term(
                     index=index,
                     word=word,

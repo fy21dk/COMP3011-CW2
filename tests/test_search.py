@@ -1,207 +1,310 @@
-# tests/test_search.py
+# tests/test_main.py
 
+import builtins
+import importlib
 import sys
-import pytest
 from pathlib import Path
+
+import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from src.search import (
-    tokenize_query,
-    make_snippet,
-    get_matching_doc_ids,
-    build_results,
-    search,
-    search_with_fallback,
-)
-
 
 @pytest.fixture
-def sample_index():
+def main_module():
     """
-    Provide a small sample inverted index for testing.
+    Import src.main fresh for each test.
     """
-    return {
-        "life": {
-            "page1#q1": {
-                "frequency": 1,
-                "positions": [0],
+
+    import src.main as main
+    return importlib.reload(main)
+
+
+def test_get_index_path(main_module):
+    path = main_module.get_index_path()
+
+    assert path.name == "index.json"
+    assert path.parent.name == "data"
+    assert isinstance(path, Path)
+
+
+def test_cmd_build_calls_crawl_build_save(monkeypatch, tmp_path, capsys, main_module):
+    fake_quotes = [
+        {
+            "page": 1,
+            "quote_num": 1,
+            "text": "hello world",
+            "author": "tester",
+            "tags": [],
+        }
+    ]
+    fake_index = {"hello": {"1-1": {"frequency": 1}}}
+    calls = {}
+
+    fake_output = tmp_path / "data" / "index.json"
+
+    def fake_get_index_path():
+        return fake_output
+
+    def fake_crawl_quotes(url, delay):
+        calls["crawl"] = {"url": url, "delay": delay}
+        return fake_quotes
+
+    def fake_build_index(quotes):
+        calls["build"] = quotes
+        return fake_index
+
+    def fake_save_index(index, path):
+        calls["save"] = {"index": index, "path": path}
+
+    monkeypatch.setattr(main_module, "get_index_path", fake_get_index_path)
+    monkeypatch.setattr(main_module, "crawl_quotes", fake_crawl_quotes)
+    monkeypatch.setattr(main_module, "build_index", fake_build_index)
+    monkeypatch.setattr(main_module, "save_index", fake_save_index)
+
+    main_module.cmd_build()
+
+    assert calls["crawl"]["url"] == main_module.START_URL
+    assert calls["crawl"]["delay"] == 6
+    assert calls["build"] == fake_quotes
+    assert calls["save"]["index"] == fake_index
+    assert calls["save"]["path"] == str(fake_output)
+    assert fake_output.parent.exists()
+
+    captured = capsys.readouterr()
+    assert "[INFO] Crawling..." in captured.out
+    assert "[INFO] Building index..." in captured.out
+    assert "[INFO] Saving index..." in captured.out
+    assert "[INFO] Build complete." in captured.out
+
+
+def test_cmd_load_success(monkeypatch, tmp_path, capsys, main_module):
+    fake_path = tmp_path / "data" / "index.json"
+    fake_path.parent.mkdir(parents=True, exist_ok=True)
+    fake_path.write_text("{}", encoding="utf-8")
+
+    expected_index = {"love": {"1-1": {"frequency": 2}}}
+
+    monkeypatch.setattr(main_module, "get_index_path", lambda: fake_path)
+    monkeypatch.setattr(main_module, "load_index", lambda path: expected_index)
+
+    result = main_module.cmd_load()
+
+    assert result == expected_index
+
+    captured = capsys.readouterr()
+    assert "[INFO] Loading index..." in captured.out
+    assert "[INFO] Index loaded." in captured.out
+
+
+def test_cmd_load_missing_file(monkeypatch, tmp_path, capsys, main_module):
+    missing_path = tmp_path / "data" / "index.json"
+
+    monkeypatch.setattr(main_module, "get_index_path", lambda: missing_path)
+
+    result = main_module.cmd_load()
+
+    assert result is None
+
+    captured = capsys.readouterr()
+    assert "[ERROR] index.json not found. Run 'build' first." in captured.out
+
+
+def test_cmd_print_requires_loaded_index(main_module, capsys):
+    main_module.cmd_print(None, "love")
+
+    captured = capsys.readouterr()
+    assert "[ERROR] No index loaded. Use 'load' first." in captured.out
+
+
+def test_cmd_print_word_not_found(main_module, capsys):
+    index = {"life": {"1-1": {"frequency": 1}}}
+
+    main_module.cmd_print(index, "love")
+
+    captured = capsys.readouterr()
+    assert "[INFO] 'love' not found." in captured.out
+
+
+def test_cmd_print_success(main_module, capsys):
+    index = {
+        "love": {
+            "3-1": {
+                "frequency": 2,
+                "positions": [0, 5],
                 "fields": ["text", "tags"],
-                "text": "Life is beautiful",
-                "author": "Mark Twain",
-            },
-            "page2#q1": {
-                "frequency": 1,
-                "positions": [2],
-                "fields": ["text"],
-                "text": "Art makes life meaningful",
-                "author": "Jane Austen",
-            },
-        },
-        "mark": {
-            "page1#q1": {
-                "frequency": 0,
-                "positions": [],
-                "fields": ["author"],
-                "text": "Life is beautiful",
-                "author": "Mark Twain",
+                "text": "love you love life",
+                "author": "Pablo Neruda",
             }
-        },
-        "twain": {
-            "page1#q1": {
-                "frequency": 0,
-                "positions": [],
-                "fields": ["author"],
-                "text": "Life is beautiful",
-                "author": "Mark Twain",
-            }
-        },
-        "beautiful": {
-            "page1#q1": {
-                "frequency": 1,
-                "positions": [2],
-                "fields": ["text"],
-                "text": "Life is beautiful",
-                "author": "Mark Twain",
-            }
-        },
-        "inspirational": {
-            "page1#q1": {
-                "frequency": 0,
-                "positions": [],
-                "fields": ["tags"],
-                "text": "Life is beautiful",
-                "author": "Mark Twain",
-            }
-        },
+        }
     }
 
+    main_module.cmd_print(index, "love")
 
-def test_01_tokenize_query_basic():
-    """Test that query is tokenized into lowercase words."""
-    assert tokenize_query("Mark Twain") == ["mark", "twain"]
-
-
-def test_02_tokenize_query_with_punctuation():
-    """Test that punctuation is removed."""
-    assert tokenize_query(" Life, Beautiful! ") == ["life", "beautiful"]
+    captured = capsys.readouterr()
+    assert "[INFO] Inverted index for 'love':" in captured.out
+    assert "3-1" in captured.out
+    assert "Pablo Neruda" in captured.out
 
 
-def test_03_make_snippet_with_positions():
-    """Test snippet generation using positions."""
-    text = "Life is very beautiful and full of hope"
-    snippet = make_snippet(text, [3], window=2)
+def test_cmd_find_requires_loaded_index(main_module, capsys):
+    main_module.cmd_find(None, "good friends")
 
-    assert snippet == "is very beautiful and full"
-
-
-def test_04_make_snippet_without_positions():
-    """Test snippet fallback when no positions."""
-    text = "Life is beautiful and inspiring"
-    snippet = make_snippet(text, [])
-
-    assert snippet == text
+    captured = capsys.readouterr()
+    assert "[ERROR] No index loaded. Use 'load' first." in captured.out
 
 
-def test_05_get_matching_doc_ids_single_word(sample_index):
-    """Test matching for a single word."""
-    result = get_matching_doc_ids(sample_index, ["life"])
-    assert result == {"page1#q1", "page2#q1"}
+def test_cmd_find_strict_and(monkeypatch, main_module, capsys):
+    strict_results = [
+        {
+            "doc_id": "2-1",
+            "author": "Marilyn Monroe",
+            "fields": ["tags", "text"],
+            "frequency": 4,
+            "snippet": "good part is you get",
+        }
+    ]
+
+    monkeypatch.setattr(main_module, "search", lambda index, query: strict_results)
+    monkeypatch.setattr(main_module, "search_with_fallback", lambda index, query: [])
+
+    main_module.cmd_find({"dummy": {}}, "good friends")
+
+    captured = capsys.readouterr()
+    assert "[INFO] Search mode: strict AND" in captured.out
+    assert "[INFO] 1 result(s) found." in captured.out
+    assert "2-1" in captured.out
+    assert "Marilyn Monroe" in captured.out
+    assert "snippet=good part is you get" in captured.out
 
 
-def test_06_get_matching_doc_ids_and_search(sample_index):
-    """Test strict AND matching."""
-    result = get_matching_doc_ids(sample_index, ["life", "mark"])
-    assert result == {"page1#q1"}
+def test_cmd_find_fallback(monkeypatch, main_module, capsys):
+    fallback_results = [
+        {
+            "doc_id": "2-1",
+            "author": "Marilyn Monroe",
+            "fields": ["text"],
+            "frequency": 3,
+            "snippet": "true best friends in the",
+            "matched_words": ["friends"],
+            "match_count": 1,
+            "is_fallback": True,
+        }
+    ]
+
+    monkeypatch.setattr(main_module, "search", lambda index, query: [])
+    monkeypatch.setattr(main_module, "search_with_fallback", lambda index, query: fallback_results)
+
+    main_module.cmd_find({"dummy": {}}, "good xyz friends")
+
+    captured = capsys.readouterr()
+    assert "[INFO] Search mode: fallback" in captured.out
+    assert "[INFO] 1 result(s) found." in captured.out
+    assert "2-1" in captured.out
+    assert "match_count=1" in captured.out
+    assert "matched_words=friends" in captured.out
 
 
-def test_07_get_matching_doc_ids_missing_word(sample_index):
-    """Test missing word returns empty."""
-    result = get_matching_doc_ids(sample_index, ["life", "unknown"])
-    assert result == set()
+def test_cmd_find_no_results(monkeypatch, main_module, capsys):
+    monkeypatch.setattr(main_module, "search", lambda index, query: [])
+    monkeypatch.setattr(main_module, "search_with_fallback", lambda index, query: [])
+
+    main_module.cmd_find({"dummy": {}}, "no such phrase")
+
+    captured = capsys.readouterr()
+    assert "[INFO] No matching documents." in captured.out
 
 
-def test_08_build_results_basic(sample_index):
-    """Test building results."""
-    results = build_results(sample_index, ["life", "mark"], {"page1#q1"})
+def test_main_loop_build_load_print_find_exit(monkeypatch, main_module, capsys):
+    commands = iter([
+        "build",
+        "load",
+        "print love",
+        "find good friends",
+        "exit",
+    ])
 
-    assert len(results) == 1
-    assert results[0]["doc_id"] == "page1#q1"
-    assert results[0]["author"] == "Mark Twain"
-    assert results[0]["frequency"] == 1
-    assert sorted(results[0]["fields"]) == ["author", "tags", "text"]
-    assert "Life" in results[0]["snippet"]
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(commands))
 
+    calls = {
+        "build": 0,
+        "load": 0,
+        "print": [],
+        "find": [],
+    }
 
-def test_09_search_single_word(sample_index):
-    """Test search with one word."""
-    results = search(sample_index, "life")
-    assert len(results) == 2
+    def fake_cmd_build():
+        calls["build"] += 1
 
+    def fake_cmd_load():
+        calls["load"] += 1
+        return {"loaded": True}
 
-def test_10_search_multiple_words_and(sample_index):
-    """Test AND search."""
-    results = search(sample_index, "life mark")
+    def fake_cmd_print(index, word):
+        calls["print"].append((index, word))
 
-    assert len(results) == 1
-    assert results[0]["doc_id"] == "page1#q1"
+    def fake_cmd_find(index, query):
+        calls["find"].append((index, query))
 
+    monkeypatch.setattr(main_module, "cmd_build", fake_cmd_build)
+    monkeypatch.setattr(main_module, "cmd_load", fake_cmd_load)
+    monkeypatch.setattr(main_module, "cmd_print", fake_cmd_print)
+    monkeypatch.setattr(main_module, "cmd_find", fake_cmd_find)
 
-def test_11_search_author_word(sample_index):
-    """Test author-based search."""
-    results = search(sample_index, "mark")
+    main_module.main()
 
-    assert len(results) == 1
-    assert "author" in results[0]["fields"]
+    assert calls["build"] == 1
+    assert calls["load"] == 1
+    assert calls["print"] == [({"loaded": True}, "love")]
+    assert calls["find"] == [({"loaded": True}, "good friends")]
 
-
-def test_12_search_tags_word(sample_index):
-    """Test tag-based search."""
-    results = search(sample_index, "inspirational")
-
-    assert len(results) == 1
-    assert "tags" in results[0]["fields"]
-
-
-def test_13_search_no_results(sample_index):
-    """Test no results case."""
-    assert search(sample_index, "life unknown") == []
-
-
-def test_14_search_empty_query(sample_index):
-    """Test empty query."""
-    assert search(sample_index, "") == []
+    captured = capsys.readouterr()
+    assert "=== Simple Search Engine CLI ===" in captured.out
+    assert "Commands: build, load, print <word>, find <query>, exit" in captured.out
+    assert "Bye." in captured.out
 
 
-# -------------------------
-# fallback search
-# -------------------------
+def test_main_loop_unknown_command(monkeypatch, main_module, capsys):
+    commands = iter([
+        "unknown",
+        "exit",
+    ])
 
-def test_15_fallback_strict_success(sample_index):
-    """Test fallback returns strict result when possible."""
-    results = search_with_fallback(sample_index, "life mark")
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(commands))
 
-    assert results[0]["is_fallback"] is False
-    assert results[0]["match_count"] == 2
+    main_module.main()
 
-
-def test_16_fallback_reduce_query(sample_index):
-    """Test fallback reduces query size."""
-    results = search_with_fallback(sample_index, "life mark unknown")
-
-    assert results[0]["is_fallback"] is True
-    assert results[0]["match_count"] == 2
-    assert sorted(results[0]["matched_words"]) == ["life", "mark"]
+    captured = capsys.readouterr()
+    assert "[ERROR] Unknown command." in captured.out
+    assert "Available commands: build, load, print <word>, find <query>, exit" in captured.out
 
 
-def test_17_fallback_single_word(sample_index):
-    """Test fallback to single word."""
-    results = search_with_fallback(sample_index, "unknown twain")
+def test_main_loop_usage_errors(monkeypatch, main_module, capsys):
+    commands = iter([
+        "print",
+        "find",
+        "exit",
+    ])
 
-    assert results[0]["match_count"] == 1
-    assert results[0]["matched_words"] == ["twain"]
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(commands))
+
+    main_module.main()
+
+    captured = capsys.readouterr()
+    assert "[ERROR] Usage: print <word>" in captured.out
+    assert "[ERROR] Usage: find <query>" in captured.out
 
 
-def test_18_fallback_no_match(sample_index):
-    """Test fallback with no matches."""
-    assert search_with_fallback(sample_index, "unknown missing") == []
+def test_main_loop_empty_input_then_exit(monkeypatch, main_module, capsys):
+    commands = iter([
+        "",
+        "   ",
+        "exit",
+    ])
+
+    monkeypatch.setattr(builtins, "input", lambda _prompt="": next(commands))
+
+    main_module.main()
+
+    captured = capsys.readouterr()
+    assert "Bye." in captured.out

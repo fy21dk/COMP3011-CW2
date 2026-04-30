@@ -79,7 +79,7 @@ def get_next_page_url(html, current_url):
     return urljoin(current_url, href)
 
 
-def crawl_quotes(start_url, delay=6):
+def crawl_quotes(target_url, delay=6):
     """
     Crawl quotes starting from the given URL until no next page exists.
 
@@ -91,7 +91,7 @@ def crawl_quotes(start_url, delay=6):
         list[dict]: All crawled quotes across all pages.
     """
     all_quotes = []
-    current_url = start_url
+    current_url = target_url
     page_num = 1
 
     while current_url is not None:
