@@ -56,6 +56,39 @@ def get_matching_doc_ids(index, words):
     return set.intersection(*doc_sets)
 
 
+
+def calculate_strictAND_score(query_terms, doc_positions):
+    """
+    Perform strict AND search with distance-based ranking.
+
+    Ranking strategy:
+    1. All query terms must exist in the same document.
+    2. Documents are ranked by positional proximity of query terms.
+    3. Smaller distance between query words gives higher score.
+    4. Exact phrase matches receive the best ranking.
+    """
+    
+    total_distance = 0
+
+    for i in range(len(query_terms) - 1):
+        left_positions = doc_positions.get(query_terms[i], [])
+        right_positions = doc_positions.get(query_terms[i + 1], [])
+
+        if not left_positions or not right_positions:
+            return 0
+
+        min_distance = min(
+            abs(left - right)
+            for left in left_positions
+            for right in right_positions
+        )
+
+        total_distance += min_distance
+
+    return 1000 - total_distance
+
+
+
 def build_results(index, words, matched_doc_ids):
     """
     Build the final search results list from matched doc_ids.
@@ -70,9 +103,12 @@ def build_results(index, words, matched_doc_ids):
         text = ""
         author = ""
         snippet_positions = []
+        doc_positions = {}
 
         for word in words:
             posting = index[word][doc_id]
+
+            doc_positions[word] = posting["positions"]
 
             total_frequency += posting["frequency"]
             merged_fields.update(posting["fields"])
@@ -86,6 +122,7 @@ def build_results(index, words, matched_doc_ids):
                 snippet_positions = posting["positions"]
 
         snippet = make_snippet(text, snippet_positions)
+        strict_score = calculate_strictAND_score(words, doc_positions)
 
         results.append({
             "doc_id": doc_id,
@@ -94,9 +131,17 @@ def build_results(index, words, matched_doc_ids):
             "fields": sorted(merged_fields),
             "frequency": total_frequency,
             "snippet": snippet,
+            "strict_score": strict_score,
         })
 
-    results.sort(key=lambda item: (-item["frequency"], item["doc_id"]))
+    results.sort(
+        key=lambda item: (
+            -item["strict_score"],
+            -item["frequency"],
+            item["doc_id"]
+        )
+    )
+
     return results
 
 
@@ -188,3 +233,4 @@ def search_with_fallback(index, query):
             return final_results
 
     return []
+

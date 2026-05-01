@@ -12,7 +12,7 @@ import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
-from src.search import search_with_fallback, make_snippet
+from src.search import search_with_fallback, make_snippet, search
 
 
 # =========================
@@ -103,6 +103,46 @@ def test_03_make_snippet_without_positions():
     assert snippet == "one two three four five six"
 
 
+def test_04_strictAND_distance_ranking():
+    index = {
+        "good": {
+            "doc1": {
+                "frequency": 1,
+                "positions": [1],
+                "fields": ["text"],
+                "text": "good friends forever",
+                "author": "A",
+            },
+            "doc2": {
+                "frequency": 1,
+                "positions": [1],
+                "fields": ["text"],
+                "text": "good very very friends",
+                "author": "B",
+            },
+        },
+        "friends": {
+            "doc1": {
+                "frequency": 1,
+                "positions": [2],
+                "fields": ["text"],
+                "text": "good friends forever",
+                "author": "A",
+            },
+            "doc2": {
+                "frequency": 1,
+                "positions": [4],
+                "fields": ["text"],
+                "text": "good very very friends",
+                "author": "B",
+            },
+        },
+    }
+
+    results = search(index, "good friends")
+
+    assert results[0]["doc_id"] == "doc1"
+    assert results[1]["doc_id"] == "doc2"
 
 
 # =========================
