@@ -1,5 +1,6 @@
 # src/search.py
 
+
 import re
 from itertools import combinations
 
@@ -66,16 +67,25 @@ def calculate_strictAND_score(query_terms, doc_positions):
     2. Documents are ranked by positional proximity of query terms.
     3. Smaller distance between query words gives higher score.
     4. Exact phrase matches receive the best ranking.
+    
+    Author/tag terms may not have positions, so they are skipped during distance calculation.
+    If no distance can be calculated, return a neutral score.
     """
     
+    if len(query_terms) <= 1:
+        return 1000
+
     total_distance = 0
+    distance_count = 0
 
     for i in range(len(query_terms) - 1):
         left_positions = doc_positions.get(query_terms[i], [])
         right_positions = doc_positions.get(query_terms[i + 1], [])
 
+        # Author/tag terms may not have text positions.
+        # Skip this pair instead of returning 0.
         if not left_positions or not right_positions:
-            return 0
+            continue
 
         min_distance = min(
             abs(left - right)
@@ -84,6 +94,13 @@ def calculate_strictAND_score(query_terms, doc_positions):
         )
 
         total_distance += min_distance
+        distance_count += 1
+
+    # Example: "friends marilyn"
+    # friends has text positions, marilyn is author only.
+    # No text-to-text distance can be calculated.
+    if distance_count == 0:
+        return 1000
 
     return 1000 - total_distance
 

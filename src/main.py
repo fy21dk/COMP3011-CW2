@@ -1,5 +1,6 @@
 # src/main.py
 
+
 from pathlib import Path
 from src.crawler import crawl_quotes
 from src.indexer import build_index, save_index, load_index
@@ -115,7 +116,7 @@ def cmd_find(index, query: str) -> None:
                 f"({item['doc_id']})"
             )
             print(f"  author   : {item['author']}")
-            print(f"  score    : {item['frequency']}")
+            print(f"  score    : {item.get('strict_score', item['frequency'])}")
             print(f"  fields   : {', '.join(item['fields'])}")
             print(f"  snippet  : {item['snippet']}")
             print(f"  url      : {make_url(item['doc_id'])}")

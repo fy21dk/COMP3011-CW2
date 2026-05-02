@@ -261,8 +261,7 @@ def test_21_get_index_path(main_module):
     assert path.parent.name == "data"
     assert isinstance(path, Path)
 
-'''
-# CLI output format changes frequently
+
 def test_22_cmd_build_calls_crawl_build_save(monkeypatch, tmp_path, capsys, main_module):
     fake_quotes = [
         {
@@ -299,7 +298,7 @@ def test_22_cmd_build_calls_crawl_build_save(monkeypatch, tmp_path, capsys, main
 
     main_module.cmd_build()
 
-    assert calls["crawl"]["url"] == main_module.START_URL
+    assert calls["crawl"]["url"] == main_module.TARGET_URL
     assert calls["crawl"]["delay"] == 6
     assert calls["build"] == fake_quotes
     assert calls["save"]["index"] == fake_index
@@ -311,7 +310,6 @@ def test_22_cmd_build_calls_crawl_build_save(monkeypatch, tmp_path, capsys, main
     assert "[INFO] Building index..." in captured.out
     assert "[INFO] Saving index..." in captured.out
     assert "[INFO] Build complete." in captured.out
-'''
 
 
 def test_23_cmd_load_success(monkeypatch, tmp_path, capsys, main_module):
@@ -361,12 +359,11 @@ def test_26_cmd_print_word_not_found(main_module, capsys):
     captured = capsys.readouterr()
     assert "[INFO] 'love' not found." in captured.out
 
-'''
-# CLI output format changes frequently
+
 def test_27_cmd_print_success(main_module, capsys):
     index = {
         "love": {
-            "3-1": {
+            "page3#q1": {
                 "frequency": 2,
                 "positions": [0, 5],
                 "fields": ["text", "tags"],
@@ -379,10 +376,14 @@ def test_27_cmd_print_success(main_module, capsys):
     main_module.cmd_print(index, "love")
 
     captured = capsys.readouterr()
-    assert "[INFO] Inverted index for 'love':" in captured.out
-    assert "3-1" in captured.out
-    assert "Pablo Neruda" in captured.out
-'''
+    assert "[INFO] Inverted index for 'love'" in captured.out
+    assert "doc_id    : page3#q1" in captured.out
+    assert "author    : Pablo Neruda" in captured.out
+    assert "frequency : 2" in captured.out
+    assert "fields    : text, tags" in captured.out
+    assert "positions : page 3 - quote 1 - [0, 5]" in captured.out
+    assert "url       : http://quotes.toscrape.com/page/3/" in captured.out
+    
 
 def test_28_cmd_find_requires_loaded_index(main_module, capsys):
     main_module.cmd_find(None, "good friends")
@@ -391,38 +392,37 @@ def test_28_cmd_find_requires_loaded_index(main_module, capsys):
     assert "[ERROR] No index loaded. Use 'load' first." in captured.out
 
 
-'''
-# CLI output format changes frequently
 def test_29_cmd_find_strict_and(monkeypatch, main_module, capsys):
     strict_results = [
         {
-            "doc_id": "2-1",
+            "doc_id": "page2#q1",
             "author": "Marilyn Monroe",
-            "fields": ["tags", "text"],
+            "fields": ["text"],
             "frequency": 4,
+            "strict_score": 999,
             "snippet": "good part is you get",
         }
     ]
 
     monkeypatch.setattr(main_module, "search", lambda index, query: strict_results)
-    monkeypatch.setattr(main_module, "search_with_fallback", lambda index, query: [])
 
     main_module.cmd_find({"dummy": {}}, "good friends")
 
     captured = capsys.readouterr()
     assert "[INFO] Search mode: strict AND" in captured.out
     assert "[INFO] 1 result(s) found." in captured.out
-    assert "2-1" in captured.out
-    assert "Marilyn Monroe" in captured.out
-    assert "snippet=good part is you get" in captured.out
-'''
+    assert "location : page 2 - quote 1 (page2#q1)" in captured.out
+    assert "author   : Marilyn Monroe" in captured.out
+    assert "score    : 999" in captured.out
+    assert "fields   : text" in captured.out
+    assert "snippet  : good part is you get" in captured.out
+    assert "url      : http://quotes.toscrape.com/page/2/" in captured.out
+    
 
-'''
-# CLI output format changes frequently
 def test_30_cmd_find_fallback(monkeypatch, main_module, capsys):
     fallback_results = [
         {
-            "doc_id": "2-1",
+            "doc_id": "page2#q1",
             "author": "Marilyn Monroe",
             "fields": ["text"],
             "frequency": 3,
@@ -439,12 +439,21 @@ def test_30_cmd_find_fallback(monkeypatch, main_module, capsys):
     main_module.cmd_find({"dummy": {}}, "good xyz friends")
 
     captured = capsys.readouterr()
+    assert "[INFO] No exact AND match found for query: 'good xyz friends'" in captured.out
+    assert "[INFO] Falling back to partial matching..." in captured.out
     assert "[INFO] Search mode: fallback" in captured.out
     assert "[INFO] 1 result(s) found." in captured.out
-    assert "2-1" in captured.out
-    assert "match_count=1" in captured.out
-    assert "matched_words=friends" in captured.out
-'''
+    assert "[INFO] Showing top 1 result(s)." in captured.out
+    assert "location      : page 2 - quote 1 (page2#q1)" in captured.out
+    assert "author        : Marilyn Monroe" in captured.out
+    assert "score         : 13" in captured.out
+    assert "matched_words : friends" in captured.out
+    assert "match_count   : 1" in captured.out
+    assert "frequency     : 3" in captured.out
+    assert "fields        : text" in captured.out
+    assert "snippet       : true best friends in the" in captured.out
+    assert "url           : http://quotes.toscrape.com/page/2/" in captured.out
+    
 
 def test_31_cmd_find_no_results(monkeypatch, main_module, capsys):
     monkeypatch.setattr(main_module, "search", lambda index, query: [])
